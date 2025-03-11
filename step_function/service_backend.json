@@ -1,0 +1,146 @@
+{
+    "Comment": "Step Function for processing chunked SRT",
+    "StartAt": "获取Chunked SRT",
+    "States": {
+      "获取Chunked SRT": {
+        "Type": "Task",
+        "Resource": "arn:aws:lambda:us-west-2:227894371467:function:getChunkedSrt",
+        "Next": "并行处理Chunks"
+      },
+      "并行处理Chunks": {
+        "Type": "Map",
+        "ItemsPath": "$.tasks",
+        "MaxConcurrency": 5,
+        "Iterator": {
+          "StartAt": "处理单个Chunk",
+          "States": {
+            "处理单个Chunk": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-west-2:227894371467:function:iterateOptChunks",
+              "End": true
+            }
+          }
+        },
+        "Next": "合并结果",
+        "ResultPath": "$.opted_chunks"
+      },
+      "合并结果": {
+        "Type": "Task",
+        "Resource": "arn:aws:lambda:us-west-2:227894371467:function:assembleOptChunks",
+        "Next": "Parallel"
+      },
+      "Parallel": {
+        "Type": "Parallel",
+        "Branches": [
+          {
+            "StartAt": "OptedSrt存储入S3",
+            "States": {
+              "OptedSrt存储入S3": {
+                "Type": "Task",
+                "Parameters": {
+                  "Body.$": "$.opted_srts",
+                  "Bucket": "bedrock-videosearch-oregon",
+                  "Key.$": "$.opted_srts_key"
+                },
+                "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "convertSrtToVtt",
+            "States": {
+              "convertSrtToVtt": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "OutputPath": "$.Payload",
+                "Parameters": {
+                  "Payload.$": "$",
+                  "FunctionName": "arn:aws:lambda:us-west-2:227894371467:function:convertSrtToVtt:$LATEST"
+                },
+                "Retry": [
+                  {
+                    "ErrorEquals": [
+                      "Lambda.ServiceException",
+                      "Lambda.AWSLambdaException",
+                      "Lambda.SdkClientException",
+                      "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2
+                  }
+                ],
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "生成视频问卷",
+            "States": {
+              "生成视频问卷": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::bedrock:invokeModel",
+                "Parameters": {
+                  "ModelId": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                  "Body": {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "system": "Role:\nYou are an expert assessment creator specializing in generating multiple-choice questions. Your task is to create exam questions based on the input content. You must output ONLY in the specified format without any additional text.\n\nGuidelines:\n1. Generate 10 questions based on the provided input content.\n2. Each question must:\n   - Be clear and specific\n   - Test understanding rather than mere memorization\n   - Have one correct answer and three plausible distractors\n   - Avoid ambiguity and double negatives\n3. The correct answer should:\n   - Be randomly positioned among the four options (index 0-3)\n   - Be indicated in the \"answer\" field by its index number\n4. All distractors should be:\n   - Plausible but clearly incorrect\n   - Similar in length and complexity to the correct answer\n   - Grammatically consistent with the question stem\n\nOutput_requirements:\n- Strictly adhere to the JSON format provided\n- Include ONLY the formatted output, no explanations or additional text\n- Ensure all JSON is properly formatted and valid\n\nFormat:\n[\n  {\n    \"question\": \"string\",\n    \"options\": [\n      {\n        \"index\": 0,\n        \"content\": \"string\"\n      },\n      {\n        \"index\": 1,\n        \"content\": \"string\"\n      },\n      {\n        \"index\": 2,\n        \"content\": \"string\"\n      },\n      {\n        \"index\": 3,\n        \"content\": \"string\"\n      }\n    ],\n    \"answer\": number\n  }\n]",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text.$": "States.JsonToString($.opted_srts)"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "Output": {
+                    "S3Uri.$": "$.test_paper_s3_uri"
+                  }
+                },
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "生成视频总结",
+            "States": {
+              "生成视频总结": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::bedrock:invokeModel",
+                "Parameters": {
+                  "ModelId": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                  "Body": {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "system": "Role: You are a precise content analysis expert, specialized in extracting key information and creating engaging titles for video content.\n\nTask: Please perform the following tasks:\n1. Carefully analyze the subtitle file provided by the user\n2. Create an engaging and descriptive video title that accurately reflects the content\n3. Extract key information and main content from the video\n4. Generate a concise summary (maximum 100 words)\n5. Output both the title and summary in JSON format\n\nRequirements:\n- The video title should be:\n  * Engaging and attention-grabbing\n  * Accurately reflect the video content\n  * Between 5-15 words\n  * Use proper capitalization\n- The summary must:\n  * Accurately reflect the core content of the video\n  * Use objective and professional language\n  * Not exceed 100 words\n- Output must strictly follow the JSON structure below:\n{\"video_title\": \"your title here\", \"summary\": \"your summary here\"}\n\nConstraints:\n- Output only the specified JSON format\n- Do not add any additional explanations or comments\n- Ensure the JSON format is completely valid",
+                    "messages": [
+                      {
+                        "role": "user",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text.$": "States.JsonToString($.opted_srts)"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "Output": {
+                    "S3Uri.$": "$.summary_s3_uri"
+                  }
+                },
+                "End": true
+              }
+            }
+          }
+        ],
+        "End": true
+      }
+    }
+  }

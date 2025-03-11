@@ -1,0 +1,109 @@
+{
+    "Comment": "A description of my state machine",
+    "StartAt": "提取关键词",
+    "States": {
+      "提取关键词": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::bedrock:invokeModel",
+        "Parameters": {
+          "ModelId": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+          "Body": {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 200,
+            "system": "Role:\nYou are an intent recognition expert specializing in extracting keyword combinations from user input that can clearly summarize the user's original search intent. Your task is to analyze the user input and extract the keyword combination that best expresses their true intent. Please ensure that the extracted keyword combination is concise and clear in English, avoiding any ambiguity or redundant words.\n\nImportant:\n1. The output format should be {\"key_words\":\"keyword combination\"}\n2. Do not include any content other than the specified format.",
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text.$": "$.input"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "Next": "Embed input query"
+      },
+      "Embed input query": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "OutputPath": "$.Payload",
+        "Parameters": {
+          "Payload.$": "$",
+          "FunctionName": "arn:aws:lambda:us-west-2:227894371467:function:embedInputQuery:$LATEST"
+        },
+        "Retry": [
+          {
+            "ErrorEquals": [
+              "Lambda.ServiceException",
+              "Lambda.AWSLambdaException",
+              "Lambda.SdkClientException",
+              "Lambda.TooManyRequestsException"
+            ],
+            "IntervalSeconds": 1,
+            "MaxAttempts": 3,
+            "BackoffRate": 2
+          }
+        ],
+        "Next": "筛选最适配的回复"
+      },
+      "筛选最适配的回复": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::bedrock:invokeModel",
+        "Parameters": {
+          "ModelId": "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+          "Body": {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "system": "Role: You are a Content Analyst specialized in evaluating relevance between questions and answers. You excel at providing precise numerical assessments of content alignment.\n\nTask: Analyze and score content relevance using these specific guidelines:\n\nInput Format:\n- Question: The query to evaluate against\n- Related_srts: A list of dictionaries containing reference information, including:\n  * Srt: Original English subtitle text\n  * VideoName: Source video name\n  * Number: Subtitle number\n  * TranslatedSrt: Translated subtitle text\n  * Timestamp: Time range\n  * doc: Context array containing related dialogue\n\nScoring Rules:\n1. Evaluate the relevance between each item's content (particularly focusing on doc fields) and the Question\n2. Score on a scale of 1-10:\n   - 10: Perfect answer the Question\n   - 6-9: Strong relevance\n   - 3-5: Moderate relevance\n   - 1-2: Minimal relevance\n\nOutput Requirements:\n1. Add a \"Relevance\" field (integer type) to each dictionary in the Related_srts list\n2. Maintain all original dictionary content unchanged\n3. Return only the modified Related_srts list without any additional text or explanations\n\nTechnical Specifications:\n- All scores must be integers\n- Preserve the original list structure\n- No additional output beyond the required list",
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text.$": "$.rerank_info"
+                  }
+                ]
+              },
+              {
+                "role": "assistant",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Here is the Related_srts list with the \"Relevance\" field added:"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "Next": "提取返回前三个"
+      },
+      "提取返回前三个": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "OutputPath": "$.Payload",
+        "Parameters": {
+          "Payload.$": "$",
+          "FunctionName": "arn:aws:lambda:us-west-2:227894371467:function:returnRelatedSrtInfo:$LATEST"
+        },
+        "Retry": [
+          {
+            "ErrorEquals": [
+              "Lambda.ServiceException",
+              "Lambda.AWSLambdaException",
+              "Lambda.SdkClientException",
+              "Lambda.TooManyRequestsException"
+            ],
+            "IntervalSeconds": 1,
+            "MaxAttempts": 3,
+            "BackoffRate": 2
+          }
+        ],
+        "End": true
+      }
+    }
+  }
