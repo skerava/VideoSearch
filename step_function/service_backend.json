@@ -4,7 +4,7 @@
     "States": {
       "获取Chunked SRT": {
         "Type": "Task",
-        "Resource": "arn:aws:lambda:us-west-2:227894371467:function:getChunkedSrt",
+        "Resource": "arn:aws:lambda:us-west-2:22467:function:getChunkedSrt",
         "Next": "并行处理Chunks"
       },
       "并行处理Chunks": {
@@ -16,7 +16,7 @@
           "States": {
             "处理单个Chunk": {
               "Type": "Task",
-              "Resource": "arn:aws:lambda:us-west-2:227894371467:function:iterateOptChunks",
+              "Resource": "arn:aws:lambda:us-west-2:227867:function:iterateOptChunks",
               "End": true
             }
           }
@@ -26,7 +26,7 @@
       },
       "合并结果": {
         "Type": "Task",
-        "Resource": "arn:aws:lambda:us-west-2:227894371467:function:assembleOptChunks",
+        "Resource": "arn:aws:lambda:us-west-2:2267:function:assembleOptChunks",
         "Next": "Parallel"
       },
       "Parallel": {
@@ -56,7 +56,7 @@
                 "OutputPath": "$.Payload",
                 "Parameters": {
                   "Payload.$": "$",
-                  "FunctionName": "arn:aws:lambda:us-west-2:227894371467:function:convertSrtToVtt:$LATEST"
+                  "FunctionName": "arn:aws:lambda:us-west-2:227:function:convertSrtToVtt:$LATEST"
                 },
                 "Retry": [
                   {
