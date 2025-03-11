@@ -11,7 +11,7 @@ def lambda_handler(event, context):
         
         # 调用 Step Functions 的 StartExecution API 启动一个状态机
         response = client.start_execution(
-            stateMachineArn='arn:aws:states:us-west-2:227894371467:stateMachine:MyStateMachine-sbp378qrj',
+            stateMachineArn='arn:aws:states:us-west-2:2277:stateMachine:MyStateMachine-sbp378qrj',
             input=json.dumps({"message": message_body})
         )
         
