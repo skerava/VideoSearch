@@ -92,7 +92,7 @@ def lambda_handler(event, context):
         client = boto3.client('stepfunctions')
         try:
             response = client.start_sync_execution(
-                stateMachineArn='arn:aws:states:us-west-2:227894371467:stateMachine:MyStateMachine-tw7xxrw48',
+                stateMachineArn='arn:aws:states:us-west-2:2:stateMachine:MyStateMachine-tw7xxrw48',
                 input=json.dumps(event, ensure_ascii=False)
             )
         except ClientError as e:
